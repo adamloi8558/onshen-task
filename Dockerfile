@@ -18,6 +18,9 @@ RUN npm ci && npm cache clean --force
 # Copy source code
 COPY src ./src
 
+# Copy environment file for backup
+COPY env.production ./.env
+
 # Build the application
 RUN npm run build
 
@@ -40,6 +43,7 @@ RUN adduser --system --uid 1001 taskrunner
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/.env ./.env
 
 # Create temp directory for processing
 RUN mkdir -p /app/temp && chown -R taskrunner:taskrunner /app/temp

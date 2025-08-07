@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import 'dotenv/config';
 import { Worker, Job } from 'bullmq';
 import Redis from 'ioredis';
 import { processVideoUpload, processAvatarUpload, processPosterUpload } from './processors';
