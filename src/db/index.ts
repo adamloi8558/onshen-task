@@ -40,7 +40,7 @@ if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL environment variable is required");
 }
 
-const client = postgres(process.env.DATABASE_URL, {
+export const client = postgres(process.env.DATABASE_URL, {
   max: 10,
   idle_timeout: 20,
   connect_timeout: 10,
@@ -58,33 +58,33 @@ export async function updateUploadJobStatus(
   processedUrl?: string,
   errorMessage?: string
 ): Promise<void> {
-  await db.execute(`
+  await client`
     UPDATE upload_jobs 
-    SET status = $1, progress = $2, processed_url = $3, error_message = $4, updated_at = NOW()
-    WHERE job_id = $5
-  `, [status, progress, processedUrl || null, errorMessage || null, jobId]);
+    SET status = ${status}, progress = ${progress}, processed_url = ${processedUrl || null}, error_message = ${errorMessage || null}, updated_at = NOW()
+    WHERE job_id = ${jobId}
+  `;
 }
 
 export async function updateUserAvatar(userId: string, avatarUrl: string): Promise<void> {
-  await db.execute(`
+  await client`
     UPDATE users 
-    SET avatar_url = $1, updated_at = NOW()
-    WHERE id = $2
-  `, [avatarUrl, userId]);
+    SET avatar_url = ${avatarUrl}, updated_at = NOW()
+    WHERE id = ${userId}
+  `;
 }
 
 export async function updateContentVideo(contentId: string, videoUrl: string): Promise<void> {
-  await db.execute(`
+  await client`
     UPDATE content 
-    SET video_url = $1, updated_at = NOW()
-    WHERE id = $2
-  `, [videoUrl, contentId]);
+    SET video_url = ${videoUrl}, updated_at = NOW()
+    WHERE id = ${contentId}
+  `;
 }
 
 export async function updateEpisodeVideo(episodeId: string, videoUrl: string): Promise<void> {
-  await db.execute(`
+  await client`
     UPDATE episodes 
-    SET video_url = $1, updated_at = NOW()
-    WHERE id = $2
-  `, [videoUrl, episodeId]);
+    SET video_url = ${videoUrl}, updated_at = NOW()
+    WHERE id = ${episodeId}
+  `;
 }

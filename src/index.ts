@@ -9,7 +9,7 @@ dotenv.config();
 
 const redis = new Redis(process.env.REDIS_URL!, {
   maxRetriesPerRequest: 3,
-  retryDelayOnFailover: 100,
+  lazyConnect: true,
 });
 
 // Job types
@@ -67,8 +67,6 @@ const videoWorker = new Worker(
   {
     connection: redis,
     concurrency: 2, // Process 2 videos at once
-    removeOnComplete: 50,
-    removeOnFail: 100,
   }
 );
 
@@ -93,8 +91,6 @@ const imageWorker = new Worker(
   {
     connection: redis,
     concurrency: 5, // Process 5 images at once
-    removeOnComplete: 100,
-    removeOnFail: 200,
   }
 );
 

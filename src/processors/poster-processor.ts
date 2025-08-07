@@ -4,7 +4,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
-import { updateUploadJobStatus, db } from '../db';
+import { updateUploadJobStatus, db, client } from '../db';
 import { logger } from '../utils/logger';
 import { PosterUploadJob } from '../index';
 
@@ -104,11 +104,11 @@ export async function processPosterUpload(job: Job<PosterUploadJob['data']>): Pr
     await job.updateProgress(90);
 
     // Update content with poster URLs
-    await db.execute(`
+    await client`
       UPDATE content 
-      SET poster_url = $1, updated_at = NOW()
-      WHERE id = $2
-    `, [posterUrl, contentId]);
+      SET poster_url = ${posterUrl}, updated_at = NOW()
+      WHERE id = ${contentId}
+    `;
 
     // Delete original uploaded file
     try {
@@ -162,8 +162,8 @@ async function downloadFromS3(s3Url: string, localPath: string): Promise<void> {
   const writeStream = fs.createWriteStream(localPath);
   
   return new Promise((resolve, reject) => {
-    if (response.Body instanceof require('stream').Readable) {
-      response.Body.pipe(writeStream)
+    if (response.Body && 'pipe' in response.Body) {
+      (response.Body as NodeJS.ReadableStream).pipe(writeStream)
         .on('error', reject)
         .on('close', resolve);
     } else {

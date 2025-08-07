@@ -172,8 +172,8 @@ async function downloadFromS3(s3Url: string, localPath: string): Promise<void> {
   const writeStream = fs.createWriteStream(localPath);
   
   return new Promise((resolve, reject) => {
-    if (response.Body instanceof require('stream').Readable) {
-      response.Body.pipe(writeStream)
+    if (response.Body && 'pipe' in response.Body) {
+      (response.Body as NodeJS.ReadableStream).pipe(writeStream)
         .on('error', reject)
         .on('close', resolve);
     } else {
