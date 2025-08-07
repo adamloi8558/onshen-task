@@ -9,7 +9,7 @@ import { logger } from './utils/logger';
 dotenv.config();
 
 const redis = new Redis(process.env.REDIS_URL!, {
-  maxRetriesPerRequest: 3,
+  maxRetriesPerRequest: null, // Required for BullMQ
   lazyConnect: true,
 });
 
