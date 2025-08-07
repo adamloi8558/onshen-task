@@ -19,7 +19,7 @@ RUN npm ci && npm cache clean --force
 COPY src ./src
 
 # Copy environment file for backup
-COPY env.production ./.env
+COPY environment.production ./.env
 
 # Build the application
 RUN npm run build
