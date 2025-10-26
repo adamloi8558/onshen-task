@@ -3,10 +3,15 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
-# Install system dependencies for ffmpeg and sharp
+# Install system dependencies for ffmpeg, sharp, and yt-dlp
 RUN apk add --no-cache \
     ffmpeg \
-    libc6-compat
+    libc6-compat \
+    python3 \
+    py3-pip
+
+# Install yt-dlp
+RUN pip3 install --no-cache-dir yt-dlp --break-system-packages
 
 # Copy package files
 COPY package*.json ./
@@ -29,11 +34,16 @@ FROM node:18-alpine AS runner
 
 WORKDIR /app
 
-# Install production dependencies and ffmpeg
+# Install production dependencies, ffmpeg, and yt-dlp
 RUN apk add --no-cache \
     ffmpeg \
     libc6-compat \
-    curl
+    curl \
+    python3 \
+    py3-pip
+
+# Install yt-dlp
+RUN pip3 install --no-cache-dir yt-dlp --break-system-packages
 
 # Create non-root user
 RUN addgroup --system --gid 1001 taskrunner

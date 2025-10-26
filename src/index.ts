@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import 'dotenv/config';
 import { Worker, Job } from 'bullmq';
 import Redis from 'ioredis';
-import { processVideoUpload, processAvatarUpload, processPosterUpload } from './processors';
+import { processVideoUpload, processAvatarUpload, processPosterUpload, processYoutubeDownload } from './processors';
 import { logger } from './utils/logger';
 
 // Load environment variables
@@ -56,12 +56,21 @@ export type JobData = VideoUploadJob | AvatarUploadJob | PosterUploadJob;
 // Create workers for different job types
 const videoWorker = new Worker(
   'video-processing',
-  async (job: Job<VideoUploadJob['data']>) => {
-    logger.info(`Processing video job ${job.id}`, { jobData: job.data });
+  async (job: Job<any>) => {
+    logger.info(`Processing job ${job.id}`, { name: job.name, jobData: job.data });
     try {
-      await processVideoUpload(job);
+      if (job.name === 'download-youtube') {
+        // YouTube download job
+        await processYoutubeDownload(job);
+      } else if (job.name === 'process-video') {
+        // Regular video upload job
+        await processVideoUpload(job);
+      } else {
+        logger.error(`Unknown job type: ${job.name}`);
+        throw new Error(`Unknown job type: ${job.name}`);
+      }
     } catch (error) {
-      logger.error(`Video job ${job.id} failed`, { error, jobData: job.data });
+      logger.error(`Job ${job.id} failed`, { error, name: job.name, jobData: job.data });
       throw error;
     }
   },
