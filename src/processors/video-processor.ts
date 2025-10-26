@@ -51,85 +51,52 @@ export async function processVideoUpload(job: Job<VideoUploadJob['data']>): Prom
     await updateUploadJobStatus(jobId, 'processing', 20);
     await job.updateProgress(20);
 
-    // Generate HLS playlist and segments with adaptive bitrate
-    logger.info('Starting video conversion to HLS with adaptive bitrate');
+    // Generate HLS playlist with single quality (720p) for faster processing
+    logger.info('Starting video conversion to HLS (720p only for speed)');
     const hlsOutputDir = path.join(outputDir, 'hls');
     await fs.ensureDir(hlsOutputDir);
     
-    // Create master playlist
-    const masterPlaylistPath = path.join(hlsOutputDir, 'master.m3u8');
+    const playlistPath = path.join(hlsOutputDir, 'playlist.m3u8');
     
-    // Generate multiple quality levels
-    const qualities = [
-      { name: '720p', width: 1280, height: 720, bitrate: '2000k', audioBitrate: '128k' },
-      { name: '480p', width: 854, height: 480, bitrate: '1000k', audioBitrate: '96k' },
-      { name: '360p', width: 640, height: 360, bitrate: '500k', audioBitrate: '64k' }
-    ];
-    
-    // Create individual playlists for each quality
-    const playlistPromises = qualities.map(async (quality, index) => {
-      const playlistPath = path.join(hlsOutputDir, `${quality.name}.m3u8`);
-      
-      return new Promise<void>((resolve, reject) => {
-        ffmpeg(tempInputFile)
-          .outputOptions([
-            '-c:v libx264',
-            '-profile:v baseline',
-            '-level 3.0',
-            `-s ${quality.width}x${quality.height}`,
-            `-b:v ${quality.bitrate}`,
-            `-b:a ${quality.audioBitrate}`,
-            '-c:a aac',
-            '-ac 2',
-            '-ar 44100',
-            '-start_number 0',
-            '-hls_time 6', // 6-second segments for faster startup
-            '-hls_list_size 0',
-            '-hls_segment_filename', path.join(hlsOutputDir, `${quality.name}_%03d.ts`),
-            '-f hls'
-          ])
-          .output(playlistPath)
-          .on('start', (cmdline) => {
-            logger.info(`FFmpeg started for ${quality.name}`, { command: cmdline });
-          })
-          .on('progress', async (progress) => {
-            const basePercent = 20 + (index * 20); // 20%, 40%, 60%
-            const percent = Math.min(80, basePercent + (progress.percent || 0) * 0.2);
-            await updateUploadJobStatus(jobId, 'processing', Math.round(percent));
-            await job.updateProgress(Math.round(percent));
-            logger.info(`Conversion progress for ${quality.name}`, { percent: progress.percent });
-          })
-          .on('end', () => {
-            logger.info(`Video conversion completed for ${quality.name}`);
-            resolve();
-          })
-          .on('error', (err) => {
-            logger.error(`FFmpeg error for ${quality.name}`, { error: err });
-            reject(err);
-          })
-          .run();
-      });
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg(tempInputFile)
+        .outputOptions([
+          '-c:v libx264',
+          '-preset veryfast', // Faster encoding
+          '-crf 23', // Good quality
+          '-maxrate 2500k',
+          '-bufsize 5000k',
+          '-s 1280x720',
+          '-c:a aac',
+          '-b:a 128k',
+          '-ac 2',
+          '-ar 44100',
+          '-start_number 0',
+          '-hls_time 6',
+          '-hls_list_size 0',
+          '-hls_segment_filename', path.join(hlsOutputDir, 'segment_%03d.ts'),
+          '-f hls'
+        ])
+        .output(playlistPath)
+        .on('start', (cmdline) => {
+          logger.info('FFmpeg started', { command: cmdline });
+        })
+        .on('progress', async (progress) => {
+          const percent = Math.min(80, 20 + (progress.percent || 0) * 0.6);
+          await updateUploadJobStatus(jobId, 'processing', Math.round(percent));
+          await job.updateProgress(Math.round(percent));
+          logger.info('Conversion progress', { percent: progress.percent });
+        })
+        .on('end', () => {
+          logger.info('Video conversion completed');
+          resolve();
+        })
+        .on('error', (err) => {
+          logger.error('FFmpeg error', { error: err });
+          reject(err);
+        })
+        .run();
     });
-    
-    // Wait for all quality conversions
-    await Promise.all(playlistPromises);
-    
-    // Create master playlist
-    const masterPlaylistContent = [
-      '#EXTM3U',
-      '#EXT-X-VERSION:3',
-      '',
-      '#EXT-X-STREAM-INF:BANDWIDTH=2000000,RESOLUTION=1280x720,NAME="720p"',
-      '720p.m3u8',
-      '',
-      '#EXT-X-STREAM-INF:BANDWIDTH=1000000,RESOLUTION=854x480,NAME="480p"',
-      '480p.m3u8',
-      '',
-      '#EXT-X-STREAM-INF:BANDWIDTH=500000,RESOLUTION=640x360,NAME="360p"',
-      '360p.m3u8'
-    ].join('\n');
-    
-    await fs.writeFile(masterPlaylistPath, masterPlaylistContent);
 
     await updateUploadJobStatus(jobId, 'processing', 85);
     await job.updateProgress(85);
@@ -157,9 +124,9 @@ export async function processVideoUpload(job: Job<VideoUploadJob['data']>): Prom
 
     await Promise.all(uploadPromises);
     
-    // Get the master playlist URL (this is the main URL to use)
-    const masterPlaylistS3Key = `videos/${contentId || episodeId}/master.m3u8`;
-    const playlistUrl = `${PUBLIC_URL}/${masterPlaylistS3Key}`;
+    // Get the playlist URL
+    const playlistS3Key = `videos/${contentId || episodeId}/playlist.m3u8`;
+    const playlistUrl = `${PUBLIC_URL}/${playlistS3Key}`;
 
     await updateUploadJobStatus(jobId, 'processing', 95);
     await job.updateProgress(95);
