@@ -56,11 +56,22 @@ export async function processYoutubeDownload(job: Job<YoutubeDownloadJob>): Prom
     logger.info('Downloading video from YouTube');
     const videoPath = path.join(tempDir, 'video.mp4');
     
-    // Using yt-dlp (need to install in Docker)
-    // For now, use youtube-dl or yt-dlp command
-    const downloadCommand = `yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" --merge-output-format mp4 -o "${videoPath}" "${youtubeUrl}"`;
+    // Using yt-dlp with options to bypass bot detection
+    const downloadCommand = `yt-dlp \
+      --no-check-certificates \
+      --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+      --referer "https://www.youtube.com/" \
+      --add-header "Accept-Language:en-US,en;q=0.9" \
+      --extractor-args "youtube:player_client=android" \
+      -f "bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[ext=mp4][height<=720]/best" \
+      --merge-output-format mp4 \
+      --no-playlist \
+      --retries 10 \
+      --fragment-retries 10 \
+      -o "${videoPath}" \
+      "${youtubeUrl}"`;
     
-    logger.info('Download command:', { command: downloadCommand });
+    logger.info('Download command:', { command: downloadCommand.replace(/\s+/g, ' ') });
     await job.updateProgress(10);
 
     try {
