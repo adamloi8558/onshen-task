@@ -63,13 +63,34 @@ export async function processYoutubeDownload(job: Job<YoutubeDownloadJob>): Prom
     if (cookies && cookiesFilePath) {
       logger.info('Creating cookies file for authentication');
       
-      // Convert cookies string to Netscape format
-      const cookiesContent = `# Netscape HTTP Cookie File
-# This file is generated for yt-dlp
-.youtube.com	TRUE	/	TRUE	0	__Secure-1PSID	${cookies}`;
+      // Parse cookies - expect format from Chrome DevTools copy-paste
+      // Support both single cookie value or full cookie string
+      let cookiesContent = '';
+      
+      // If it's just a value (like from __Secure-1PSID), create proper format
+      if (!cookies.includes('\t') && !cookies.includes('# Netscape')) {
+        // Split multiple cookies if separated by semicolon
+        const cookiePairs = cookies.split(';').map(c => c.trim());
+        
+        cookiesContent = `# Netscape HTTP Cookie File\n`;
+        cookiesContent += `# Generated for yt-dlp\n\n`;
+        
+        for (const pair of cookiePairs) {
+          const [name, value] = pair.split('=').map(s => s.trim());
+          if (name && value) {
+            // Format: domain, flag, path, secure, expiration, name, value
+            cookiesContent += `.youtube.com\tTRUE\t/\tTRUE\t2147483647\t${name}\t${value}\n`;
+          }
+        }
+      } else {
+        // Use as-is if already in Netscape format
+        cookiesContent = cookies;
+      }
       
       await fs.writeFile(cookiesFilePath, cookiesContent);
-      logger.info('Cookies file created');
+      logger.info('Cookies file created', { 
+        cookieCount: cookiesContent.split('\n').filter(l => !l.startsWith('#') && l.trim()).length 
+      });
     }
 
     // Step 1: Download video using yt-dlp
