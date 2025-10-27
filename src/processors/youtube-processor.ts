@@ -36,12 +36,18 @@ export interface YoutubeDownloadJob {
   youtubeUrl: string;
   videoId: string;
   title: string;
+  cookies?: string;
 }
 
 export async function processYoutubeDownload(job: Job<YoutubeDownloadJob>): Promise<void> {
-  const { jobId, contentId, youtubeUrl, videoId, title } = job.data;
+  const { jobId, contentId, youtubeUrl, videoId, title, cookies } = job.data;
   
-  logger.info('Starting YouTube download', { jobId, videoId, youtubeUrl });
+  logger.info('Starting YouTube download', { 
+    jobId, 
+    videoId, 
+    youtubeUrl,
+    hasCookies: !!cookies 
+  });
   await job.updateProgress(5);
 
   const tempDir = path.join(process.cwd(), 'temp', jobId);
@@ -51,26 +57,43 @@ export async function processYoutubeDownload(job: Job<YoutubeDownloadJob>): Prom
     // Create temp directories
     await fs.ensureDir(tempDir);
     await fs.ensureDir(outputDir);
+    
+    // Create cookies file if provided
+    const cookiesFilePath = cookies ? path.join(tempDir, 'cookies.txt') : null;
+    if (cookies && cookiesFilePath) {
+      logger.info('Creating cookies file for authentication');
+      
+      // Convert cookies string to Netscape format
+      const cookiesContent = `# Netscape HTTP Cookie File
+# This file is generated for yt-dlp
+.youtube.com	TRUE	/	TRUE	0	__Secure-1PSID	${cookies}`;
+      
+      await fs.writeFile(cookiesFilePath, cookiesContent);
+      logger.info('Cookies file created');
+    }
 
     // Step 1: Download video using yt-dlp
     logger.info('Downloading video from YouTube');
     const videoPath = path.join(tempDir, 'video.mp4');
     
-    // Using yt-dlp with aggressive options to bypass bot detection
-    // Try multiple methods in order of preference
+    // Using yt-dlp with cookies if provided
+    const cookiesArg = cookiesFilePath ? `--cookies "${cookiesFilePath}"` : '';
+    
     const downloadStrategies = [
-      // Strategy 1: Use web client with OAuth
-      `yt-dlp --no-check-certificates --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" --referer "https://www.youtube.com/" --extractor-args "youtube:player_client=web" --extractor-args "youtube:skip=hls,dash" -f "best[ext=mp4][height<=720]/best" --no-playlist --retries 5 -o "${videoPath}" "${youtubeUrl}"`,
+      // Strategy 1: With cookies (if provided)
+      cookiesFilePath ? 
+        `yt-dlp ${cookiesArg} --no-check-certificates -f "bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[ext=mp4][height<=720]/best" --merge-output-format mp4 --no-playlist --retries 10 -o "${videoPath}" "${youtubeUrl}"` 
+        : null,
       
       // Strategy 2: Use iOS client
       `yt-dlp --no-check-certificates --extractor-args "youtube:player_client=ios" -f "best[ext=mp4][height<=720]/best" --no-playlist --retries 5 -o "${videoPath}" "${youtubeUrl}"`,
       
-      // Strategy 3: Use age bypass
-      `yt-dlp --no-check-certificates --age-limit 21 --extractor-args "youtube:player_client=android" -f "best[ext=mp4][height<=720]/best" --no-playlist --retries 5 -o "${videoPath}" "${youtubeUrl}"`,
+      // Strategy 3: Use Android client
+      `yt-dlp --no-check-certificates --extractor-args "youtube:player_client=android" -f "best[ext=mp4][height<=720]/best" --no-playlist --retries 5 -o "${videoPath}" "${youtubeUrl}"`,
       
       // Strategy 4: Simple fallback
       `yt-dlp --no-check-certificates -f "best[ext=mp4][height<=720]/best" --no-playlist -o "${videoPath}" "${youtubeUrl}"`,
-    ];
+    ].filter(Boolean) as string[];
     
     let downloadSuccess = false;
     let lastError: any = null;
