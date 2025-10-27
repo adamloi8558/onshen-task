@@ -56,40 +56,73 @@ export async function processYoutubeDownload(job: Job<YoutubeDownloadJob>): Prom
     logger.info('Downloading video from YouTube');
     const videoPath = path.join(tempDir, 'video.mp4');
     
-    // Using yt-dlp with options to bypass bot detection
-    const downloadCommand = `yt-dlp \
-      --no-check-certificates \
-      --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
-      --referer "https://www.youtube.com/" \
-      --add-header "Accept-Language:en-US,en;q=0.9" \
-      --extractor-args "youtube:player_client=android" \
-      -f "bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[ext=mp4][height<=720]/best" \
-      --merge-output-format mp4 \
-      --no-playlist \
-      --retries 10 \
-      --fragment-retries 10 \
-      -o "${videoPath}" \
-      "${youtubeUrl}"`;
-    
-    logger.info('Download command:', { command: downloadCommand.replace(/\s+/g, ' ') });
-    await job.updateProgress(10);
-
-    try {
-      const { stdout, stderr } = await execPromise(downloadCommand, {
-        maxBuffer: 1024 * 1024 * 100, // 100MB buffer
-      });
+    // Using yt-dlp with aggressive options to bypass bot detection
+    // Try multiple methods in order of preference
+    const downloadStrategies = [
+      // Strategy 1: Use web client with OAuth
+      `yt-dlp --no-check-certificates --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" --referer "https://www.youtube.com/" --extractor-args "youtube:player_client=web" --extractor-args "youtube:skip=hls,dash" -f "best[ext=mp4][height<=720]/best" --no-playlist --retries 5 -o "${videoPath}" "${youtubeUrl}"`,
       
-      logger.info('Download completed', { stdout: stdout.substring(0, 500) });
-      if (stderr) {
-        logger.warn('Download stderr:', { stderr: stderr.substring(0, 500) });
+      // Strategy 2: Use iOS client
+      `yt-dlp --no-check-certificates --extractor-args "youtube:player_client=ios" -f "best[ext=mp4][height<=720]/best" --no-playlist --retries 5 -o "${videoPath}" "${youtubeUrl}"`,
+      
+      // Strategy 3: Use age bypass
+      `yt-dlp --no-check-certificates --age-limit 21 --extractor-args "youtube:player_client=android" -f "best[ext=mp4][height<=720]/best" --no-playlist --retries 5 -o "${videoPath}" "${youtubeUrl}"`,
+      
+      // Strategy 4: Simple fallback
+      `yt-dlp --no-check-certificates -f "best[ext=mp4][height<=720]/best" --no-playlist -o "${videoPath}" "${youtubeUrl}"`,
+    ];
+    
+    let downloadSuccess = false;
+    let lastError: any = null;
+    
+    for (let i = 0; i < downloadStrategies.length; i++) {
+      const strategy = downloadStrategies[i];
+      logger.info(`Trying download strategy ${i + 1}/${downloadStrategies.length}`);
+      
+      await job.updateProgress(10 + i * 5);
+
+      try {
+        const { stdout, stderr } = await execPromise(strategy, {
+          maxBuffer: 1024 * 1024 * 100, // 100MB buffer
+          timeout: 300000, // 5 minutes timeout
+        });
+        
+        logger.info(`Strategy ${i + 1} succeeded!`, { stdout: stdout.substring(0, 300) });
+        if (stderr && !stderr.includes('ERROR')) {
+          logger.warn('Download stderr:', { stderr: stderr.substring(0, 300) });
+        }
+        
+        // Check if file was actually downloaded
+        if (await fs.pathExists(videoPath)) {
+          const stats = await fs.stat(videoPath);
+          if (stats.size > 1024 * 100) { // At least 100KB
+            downloadSuccess = true;
+            logger.info('Download verified', { fileSize: `${Math.round(stats.size / 1024 / 1024)}MB` });
+            break;
+          }
+        }
+      } catch (strategyError: any) {
+        lastError = strategyError;
+        logger.warn(`Strategy ${i + 1} failed, trying next...`, { 
+          error: strategyError.message?.substring(0, 200),
+        });
+        
+        // Clean up failed download
+        if (await fs.pathExists(videoPath)) {
+          await fs.remove(videoPath);
+        }
+        
+        // Continue to next strategy
+        continue;
       }
-    } catch (downloadError: any) {
-      logger.error('yt-dlp download failed', { 
-        error: downloadError.message,
-        stdout: downloadError.stdout?.substring(0, 500),
-        stderr: downloadError.stderr?.substring(0, 500),
+    }
+    
+    if (!downloadSuccess) {
+      logger.error('All download strategies failed', { 
+        error: lastError?.message,
+        stderr: lastError?.stderr?.substring(0, 500),
       });
-      throw new Error('ไม่สามารถดาวน์โหลดจาก YouTube ได้');
+      throw new Error('ไม่สามารถดาวน์โหลดจาก YouTube ได้ (ลองทุกวิธีแล้ว)');
     }
 
     await job.updateProgress(40);
