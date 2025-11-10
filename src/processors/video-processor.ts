@@ -58,17 +58,54 @@ export async function processVideoUpload(job: Job<VideoUploadJob['data']>): Prom
     
     const playlistPath = path.join(hlsOutputDir, 'playlist.m3u8');
     
+    // First, check if video is already H.264
+    const videoInfo = await new Promise<any>((resolve, reject) => {
+      ffmpeg.ffprobe(tempInputFile, (err, metadata) => {
+        if (err) reject(err);
+        else resolve(metadata);
+      });
+    });
+    
+    const videoStream = videoInfo.streams.find((s: any) => s.codec_type === 'video');
+    const audioStream = videoInfo.streams.find((s: any) => s.codec_type === 'audio');
+    const isH264 = videoStream?.codec_name === 'h264';
+    const isAAC = audioStream?.codec_name === 'aac';
+    
+    logger.info('Video codec info', {
+      videoCodec: videoStream?.codec_name,
+      audioCodec: audioStream?.codec_name,
+      width: videoStream?.width,
+      height: videoStream?.height,
+      canCopy: isH264 && isAAC
+    });
+    
     await new Promise<void>((resolve, reject) => {
-      ffmpeg(tempInputFile)
-        .outputOptions([
+      const ffmpegCommand = ffmpeg(tempInputFile);
+      
+      // If already H.264 + AAC, just copy (super fast!)
+      if (isH264 && isAAC && videoStream.width <= 1280) {
+        logger.info('Video is already H.264+AAC, using copy mode (no re-encoding)');
+        ffmpegCommand.outputOptions([
+          '-c:v copy', // Copy video without re-encoding ← เร็วมาก!
+          '-c:a copy', // Copy audio without re-encoding ← เร็วมาก!
+          '-start_number 0',
+          '-hls_time 6',
+          '-hls_list_size 0',
+          '-hls_segment_filename', path.join(hlsOutputDir, 'segment_%03d.ts'),
+          '-f hls'
+        ]);
+      } else {
+        // Need to re-encode
+        logger.info('Video needs re-encoding');
+        ffmpegCommand.outputOptions([
           '-c:v libx264',
-          '-preset veryfast', // Faster encoding
-          '-crf 23', // Good quality
-          '-maxrate 2500k',
-          '-bufsize 5000k',
+          '-preset ultrafast',
+          '-crf 26',
+          '-maxrate 2000k',
+          '-bufsize 4000k',
           '-s 1280x720',
           '-c:a aac',
-          '-b:a 128k',
+          '-b:a 96k',
           '-ac 2',
           '-ar 44100',
           '-start_number 0',
@@ -76,8 +113,10 @@ export async function processVideoUpload(job: Job<VideoUploadJob['data']>): Prom
           '-hls_list_size 0',
           '-hls_segment_filename', path.join(hlsOutputDir, 'segment_%03d.ts'),
           '-f hls'
-        ])
-        .output(playlistPath)
+        ]);
+      }
+      
+      ffmpegCommand.output(playlistPath)
         .on('start', (cmdline) => {
           logger.info('FFmpeg started', { command: cmdline });
         })
